@@ -1,0 +1,12 @@
+{
+    "window.zoomLevel": 0,
+    "editor.renderWhitespace": "all",
+    "dart.flutterHotReloadOnSave": false,
+	"editor.codeActionsOnSave": {
+        "source.fixAll.tslint": true
+    },
+	"[dart]": {
+        "editor.formatOnSave": true,
+    },
+    "dart.lineLength": 80
+}
