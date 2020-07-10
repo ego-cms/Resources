@@ -1,0 +1,336 @@
+---
+format_version: '8'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: flutter
+workflows:
+  daily:
+    steps:
+    - activate-ssh-key:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone: {}
+    - flutter-installer@0.11:
+        inputs:
+        - is_debug: 'true'
+    - certificate-and-profile-installer@1: {}
+    - cache-pull: {}
+    - script@1.1.6:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+
+            #flutter clean
+            flutter build ios --release
+
+            cd ios
+            xcodebuild -workspace Runner.xcworkspace -scheme develop -sdk iphoneos -configuration Release archive -archivePath ../build/Runner.xcarchive
+            xcodebuild -exportArchive -archivePath ../build/Runner.xcarchive -exportOptionsPlist ci/ExportOptions.plist -exportPath ../build/IpaDir
+            mv ../build/IpaDir/develop.ipa $BITRISE_DEPLOY_DIR
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        is_always_run: true
+        title: Ipa file build
+    - script@1.1.6:
+        title: Apk file build
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+            flutter "build" "apk" "--release" --flavor develop
+            mv build/app/outputs/apk/develop/release/app-develop-release.apk $BITRISE_DEPLOY_DIR
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - deploy-to-bitrise-io: {}
+    - cache-push:
+        is_always_run: true
+    description: 'beta_workflow
+
+'
+  testflight:
+    steps:
+    - activate-ssh-key:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone: {}
+    - flutter-installer@0.11.0:
+        inputs:
+        - is_debug: 'true'
+        - version: 1.17.0
+    - certificate-and-profile-installer@1: {}
+    - cache-pull: {}
+    - flutter-analyze:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        is_always_run: true
+    - script@1.1.6:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo $BITRISE_DEPLOY_DIR
+
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+
+            bundle=$IOS_APP_BUNDLE_NAME
+            INFO_PLIST_PATH=./ios/Runner/Info.plist
+            a=$(/usr/libexec/PlistBuddy -c "Set CFBundleIdentifier ${bundle}" "${INFO_PLIST_PATH}")
+            version=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "${INFO_PLIST_PATH}")
+
+
+            /usr/libexec/PlistBuddy -c "Set :objects:97C147071CF9000F007C117D:buildSettings:CURRENT_PROJECT_VERSION ${BITRISE_BUILD_NUMBER}" "./ios/Runner.xcodeproj/project.pbxproj"
+            /usr/libexec/PlistBuddy -c "Set CFBundleIdentifier ${bundle}" "${INFO_PLIST_PATH}"
+            /usr/libexec/PlistBuddy -c "Set :objects:97C147071CF9000F007C117D:buildSettings:DEVELOPMENT_TEAM ${DEVELOPMENT_TEAM}" "./ios/Runner.xcodeproj/project.pbxproj"
+            /usr/libexec/PlistBuddy -c "Set :objects:97C147071CF9000F007C117D:buildSettings:PROVISIONING_PROFILE_SPECIFIER ${PROVISION_PROFILE_NAME}" "./ios/Runner.xcodeproj/project.pbxproj"
+            /usr/libexec/PlistBuddy -c "Set :objects:97C147071CF9000F007C117D:buildSettings:PRODUCT_BUNDLE_IDENTIFIER ${IOS_APP_BUNDLE_NAME}" "./ios/Runner.xcodeproj/project.pbxproj"
+
+            flutter clean
+            flutter build ios --release
+
+            cd ios
+            xcodebuild -workspace Runner.xcworkspace -scheme production -sdk iphoneos -configuration Release archive -archivePath ../build/Runner.xcarchive
+            xcodebuild -exportArchive -archivePath ../build/Runner.xcarchive -exportOptionsPlist ci/production/ExportOptions.plist -exportPath ../build/IpaDir
+            mv ../build/IpaDir/production.ipa $BITRISE_DEPLOY_DIR
+        is_always_run: true
+        title: Ipa file build
+    - deploy-to-itunesconnect-application-loader@0:
+        inputs:
+        - password: "$APPLE_ID_PASSWORD"
+        - itunescon_user: "$APPLE_ID"
+        - ipa_path: "$BITRISE_DEPLOY_DIR/production.ipa"
+        - pkg_path: ''
+        - app_password: "$APP_SPECIFIC_PASSWORD"
+    - cache-push:
+        is_always_run: true
+    description: 'beta_workflow
+
+'
+    meta:
+      bitrise.io:
+        stack: osx-xcode-11.5.x
+  PR:
+    steps:
+    - activate-ssh-key:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone: {}
+    - flutter-installer@0.11:
+        inputs:
+        - is_debug: 'true'
+    - script@1:
+        inputs:
+        - content: flutter doctor
+    - certificate-and-profile-installer@1: {}
+    - cache-pull: {}
+    - flutter-analyze:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        is_always_run: true
+    - flutter-test@0.10:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        is_always_run: true
+    - script@1.1.6:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+
+            flutter clean
+            flutter build ios --release
+
+            # cd ios
+            # xcodebuild -workspace Runner.xcworkspace -scheme develop -sdk iphoneos -configuration Release archive -archivePath ../build/Runner.xcarchive
+            # xcodebuild -exportArchive -archivePath ../build/Runner.xcarchive -exportOptionsPlist ci/ExportOptions.plist -exportPath ../build/IpaDir
+            # mv ../build/IpaDir/develop.ipa $BITRISE_DEPLOY_DIR
+        is_always_run: true
+        title: Ipa file build
+    - script@1.1.6:
+        title: Apk file build
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+            flutter "build" "apk" "--release" --flavor develop
+            mv build/app/outputs/apk/develop/release/app-develop-release.apk $BITRISE_DEPLOY_DIR
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - cache-push:
+        is_always_run: true
+    description: 'beta_workflow
+
+'
+  android-play-store:
+    steps:
+    - activate-ssh-key:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone: {}
+    - flutter-installer@0.11:
+        inputs:
+        - is_debug: 'true'
+        - version: 1.17.0
+    - cache-pull: {}
+    - script@1.1.6:
+        title: Appbundle file build
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+            flutter "build" "appbundle" "--release" --flavor production --build-number $BITRISE_BUILD_NUMBER
+            mv build/app/outputs/bundle/productionRelease/app-production-release.aab $BITRISE_DEPLOY_DIR
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - google-play-deploy@3:
+        inputs:
+        - package_name: com.pocketgeek.auto.android
+        - app_path: "$BITRISE_DEPLOY_DIR/app-production-release.aab"
+        - whatsnews_dir: "$BITRISE_SOURCE_DIR/pocketdrive/android/whatsnew"
+        - service_account_json_key_path: "$BITRISEIO_POCKET_GEEK_AUTO_SERVICE_CREDS_JSON_URL"
+    description: 'beta_workflow
+
+'
+    envs:
+    - opts:
+        is_expand: false
+      CURRENT_ANDROID_PROJECT_VERSION: '8'
+  PR-Cachechange:
+    steps:
+    - activate-ssh-key:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - cache-pull:
+        is_always_run: true
+    - git-clone: {}
+    - flutter-installer@0.11.0:
+        inputs:
+        - is_debug: 'true'
+    - script@1:
+        inputs:
+        - content: flutter doctor
+    - certificate-and-profile-installer@1: {}
+    - flutter-analyze:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        is_always_run: true
+    - flutter-test@0.9.1:
+        inputs:
+        - project_location: "$BITRISE_FLUTTER_PROJECT_LOCATION"
+        is_always_run: true
+    - script@1.1.6:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            echo $BITRISE_DEPLOY_DIR
+
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+            flutter clean
+            flutter build ios --release
+
+            # cd ios
+            # xcodebuild -workspace Runner.xcworkspace -scheme develop -sdk iphoneos -configuration Release archive -archivePath ../build/Runner.xcarchive
+            # xcodebuild -exportArchive -archivePath ../build/Runner.xcarchive -exportOptionsPlist ci/ExportOptions.plist -exportPath ../build/IpaDir
+            # mv ../build/IpaDir/develop.ipa $BITRISE_DEPLOY_DIR
+        is_always_run: true
+        title: Ipa file build
+    - script@1.1.6:
+        title: Apk file build
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # debug log
+            set -x
+
+            # write your script here
+            cd $BITRISE_FLUTTER_PROJECT_LOCATION
+            flutter "build" "apk" "--release" --flavor develop
+            mv build/app/outputs/apk/develop/release/app-develop-release.apk $BITRISE_DEPLOY_DIR
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - cache-push:
+        is_always_run: true
+    description: 'beta_workflow
+
+'
+app:
+  envs:
+  - BITRISE_FLUTTER_PROJECT_LOCATION: "./your-project-name"
+    opts:
+      is_expand: false
+  - opts:
+      is_expand: false
+    BITRISE_PROJECT_PATH: "./"
+  - opts:
+      is_expand: false
+    BITRISE_SCHEME: debug
+  - opts:
+      is_expand: false
+    BITRISE_EXPORT_METHOD: development
+  - opts:
+      is_expand: false
+    IOS_APP_BUNDLE_NAME: your.bundle.name
+  - opts:
+      is_expand: false
+    DEVELOPMENT_TEAM: DevelopmentTeamName
+  - opts:
+      is_expand: false
+    PROVISION_PROFILE_NAME: ProvisionProfileName
+  - opts:
+      is_expand: false
+    CURRENT_PROJECT_VERSION: '7'
+trigger_map:
+- pull_request_source_branch: "*"
+  workflow: PR
